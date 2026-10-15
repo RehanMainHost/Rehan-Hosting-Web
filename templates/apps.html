@@ -25,13 +25,13 @@
     <a class="btn ghost" href="/download/app/{{ app.id }}">↓ Download .zip</a>
     <form method="post" action="/apps/{{ app.id }}/delete" style="display:inline"
           onsubmit="return confirm('Delete {{ app.name }}?')">
-      <button class="btn danger">Delete</button>
+      <button class="btn danger">🗑 Delete</button>
     </form>
     <span class="badge {{ 'run' if live else 'stop' }}">
       <span class="dot"></span>{{ 'running' if live else app.status }}
     </span>
     {% if restarts %}
-      <span class="badge warn">↻ {{ restarts }} auto-restart{{ 's' if restarts != 1 else '' }}</span>
+      <span class="badge warn">↻ {{ restarts }} restart{{ 's' if restarts != 1 else '' }}</span>
     {% endif %}
   </div>
 
@@ -51,7 +51,7 @@
         <tr><td style="color:var(--muted)">Port</td><td class="env-val">{{ port or '—' }}</td></tr>
         <tr><td style="color:var(--muted)">Restarts</td><td class="env-val">{{ restarts }}</td></tr>
         <tr><td style="color:var(--muted)">Trigger</td>
-            <td class="env-val">process exit / crash · watchdog tick 5s</td></tr>
+            <td class="env-val">process exit · watchdog tick 5s</td></tr>
         <tr><td style="color:var(--muted)">Limit</td>
             <td class="env-val">5 restarts / 5 min → dormant</td></tr>
         <tr><td style="color:var(--muted)">Auto-start on boot</td>
@@ -62,14 +62,14 @@
                 </button>
               </form>
               <span style="color:var(--muted);font-size:11px;margin-left:8px">
-                deploy/redeploy hole auto start hobe
+                deploy/redeploy hole auto start
               </span>
             </td></tr>
       </table>
     </div>
   {% else %}
     <div class="env-hint" style="margin-bottom:14px">
-      kind <code>{{ app.type }}</code> — in-process serve, kono persistent process nei (crash hoy na).
+      kind <code>{{ app.type }}</code> — in-process serve, kono persistent process nei.
     </div>
   {% endif %}
 
@@ -151,20 +151,19 @@
             <input type="file" name="file" accept=".zip">
             <div class="env-hint">
               <strong>auto detect:</strong><br>
-              • <code>index.html</code> → static (in-process)<br>
-              • <code>index.php</code>/<code>*.php</code> → PHP (in-process)<br>
-              • <code>app.py</code>/<code>main.py</code>/<code>manage.py</code>/<code>package.json</code> → dynamic (spawn+watchdog)<br>
-              • <code>.env</code>/<code>config.py</code>/<code>config.json</code> → env vars<br>
-              • <strong>name</strong> → zip filename
+              • <code>index.html</code> → static<br>
+              • <code>index.php</code>/<code>*.php</code> → PHP<br>
+              • <code>app.py</code>/<code>main.py</code>/<code>package.json</code> → dynamic<br>
+              • <code>requirements.txt</code> → auto pip install
             </div>
           </div>
           <div class="field">
-            <label>Type — optional (auto = detect)</label>
+            <label>Type — optional</label>
             <select name="type">
               <option value="auto">auto detect</option>
               <option value="static">static</option>
               <option value="php">php</option>
-              <option value="web">web service (python/node)</option>
+              <option value="web">web service</option>
               <option value="worker">worker</option>
             </select>
           </div>
@@ -194,7 +193,7 @@
             <span class="badge {{ 'run' if a.live else 'stop' }}">
               <span class="dot"></span>{{ 'running' if a.live else a.status }}
             </span>
-            {% if a.auto_start %}<span class="badge warn" title="deploy e auto start">⟳ auto</span>{% endif %}
+            {% if a.auto_start %}<span class="badge warn" title="deploy e auto start">⟳</span>{% endif %}
             {% if a.status == 'hosted' or a.live %}
               <a class="btn gold small" href="/site/{{ a.id }}/" target="_blank" title="Open site">↗</a>
             {% endif %}

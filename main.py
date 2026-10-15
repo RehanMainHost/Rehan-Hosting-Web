@@ -1221,6 +1221,29 @@ async def api_stats(user=Depends(require_user)):
         "apps": len(appsup.apps),
     }
 
+
+# ============================================================
+# global error capture — debug
+# ============================================================
+_LAST_ERROR = {"ts": None, "path": None, "traceback": None}
+
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    import traceback as _tb
+    tb = _tb.format_exc()
+    _LAST_ERROR["ts"] = datetime.utcnow().isoformat()
+    _LAST_ERROR["path"] = str(request.url.path)
+    _LAST_ERROR["traceback"] = tb
+    print(f"[UNHANDLED] {request.url.path}\n{tb}", flush=True)
+    return JSONResponse(
+        {"detail": "internal error", "path": str(request.url.path)},
+        status_code=500,
+    )
+
+@app.get("/debug/last-error")
+async def debug_last_error():
+    return _LAST_ERROR
+
 # ============================================================
 # health
 # ============================================================

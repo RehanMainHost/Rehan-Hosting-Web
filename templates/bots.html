@@ -14,22 +14,22 @@
     <form method="post" action="/bots/{{ bot.id }}/stop" style="display:inline">
       <button class="btn">■ Stop</button>
     </form>
-    <a class="btn ghost" href="/download/bot/{{ bot.id }}">↓ Download code</a>
+    <a class="btn ghost" href="/download/bot/{{ bot.id }}">↓ Download</a>
     <form method="post" action="/bots/{{ bot.id }}/delete" style="display:inline"
-          onsubmit="return confirm('Delete bot {{ bot.name }}?')">
-      <button class="btn danger">Delete</button>
+          onsubmit="return confirm('Delete {{ bot.name }}?')">
+      <button class="btn danger">🗑 Delete</button>
     </form>
     <span class="badge {{ 'run' if live else 'stop' }}">
       <span class="dot"></span>{{ 'running' if live else 'stopped' }}
     </span>
     {% if restarts %}
-      <span class="badge warn">↻ {{ restarts }} auto-restart{{ 's' if restarts != 1 else '' }}</span>
+      <span class="badge warn">↻ {{ restarts }} restart{{ 's' if restarts != 1 else '' }}</span>
     {% endif %}
   </div>
 
   {% if dormant %}
     <div class="env-hint" style="border-left-color:var(--err);background:rgba(248,113,113,.06);margin-bottom:14px">
-      ⛔ <strong>Dormant</strong> — 5 restart limit in 5 min reach hoyeche. Code fix kore abar Start kor.
+      ⛔ <strong>Dormant</strong> — 5 restart limit in 5 min. Code fix kore abar Start kor.
     </div>
   {% endif %}
 
@@ -46,7 +46,7 @@
           <td><span class="badge {{ 'err' if dormant else 'run' }}">{{ 'dormant' if dormant else 'active' }}</span></td></tr>
       <tr><td style="color:var(--muted)">Restarts</td><td class="env-val">{{ restarts }}</td></tr>
       <tr><td style="color:var(--muted)">Trigger</td>
-          <td class="env-val">5 handler crashes / 60s · dead polling task (watchdog)</td></tr>
+          <td class="env-val">5 crashes / 60s · dead task (watchdog)</td></tr>
       <tr><td style="color:var(--muted)">Limit</td>
           <td class="env-val">5 restarts / 5 min → dormant</td></tr>
       <tr><td style="color:var(--muted)">Auto-start on boot</td>
@@ -57,7 +57,7 @@
               </button>
             </form>
             <span style="color:var(--muted);font-size:11px;margin-left:8px">
-              deploy/redeploy hole auto start hobe
+              deploy/redeploy hole auto start
             </span>
           </td></tr>
     </table>
@@ -120,7 +120,8 @@
               <strong>auto detect:</strong><br>
               • <strong>name</strong> ← filename<br>
               • <strong>token</strong> ← .env / config / hardcoded<br>
-              • <strong>env</strong> ← .env / config
+              • <strong>env</strong> ← .env / config<br>
+              • <strong>deps</strong> ← requirements.txt auto-install
             </div>
           </div>
         </div>
@@ -159,14 +160,14 @@
             <span class="badge {{ 'run' if b.live else 'stop' }}">
               <span class="dot"></span>{{ 'running' if b.live else 'stopped' }}
             </span>
-            {% if b.auto_start %}<span class="badge warn" title="deploy e auto start">⟳ auto</span>{% endif %}
+            {% if b.auto_start %}<span class="badge warn" title="deploy e auto start">⟳</span>{% endif %}
             <form method="post" action="/bots/{{ b.id }}/start" style="display:inline">
               <button class="btn gold small" title="Start">▶</button>
             </form>
             <form method="post" action="/bots/{{ b.id }}/stop" style="display:inline">
               <button class="btn small" title="Stop">■</button>
             </form>
-            <a class="btn ghost small" href="/download/bot/{{ b.id }}" title="Download code">↓</a>
+            <a class="btn ghost small" href="/download/bot/{{ b.id }}" title="Download">↓</a>
             <a class="btn ghost small" href="/bots/{{ b.id }}" title="Open">↗</a>
             <form method="post" action="/bots/{{ b.id }}/delete" style="display:inline"
                   onsubmit="return confirm('Delete {{ b.name }}?')">
