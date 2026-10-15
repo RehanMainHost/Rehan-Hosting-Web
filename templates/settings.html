@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}Settings — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="sub">Branding, profile, runtime, editable config — sob ek jaygay.</p>
+
+<div class="grid cols-2" style="margin-bottom:18px">
+  <div class="card">
+    <h2 style="margin-top:0">Brand logo</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:14px">Sidebar er upore je gold box ta ache — oi ta.</p>
+    <div class="avatar-edit">
+      <div class="logo-edit-preview">
+        {% if logo_url %}
+          <img src="{{ logo_url }}" alt="">
+        {% else %}
+          <span>R</span>
+        {% endif %}
+      </div>
+      <div class="avatar-edit-form">
+        <form method="post" action="/settings/logo" enctype="multipart/form-data" class="row">
+          <input type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+          <button class="btn gold small">Upload</button>
+        </form>
+        {% if logo_url %}
+          <form method="post" action="/settings/logo/delete" style="margin-top:8px">
+            <button class="btn ghost small danger">Remove logo</button>
+          </form>
+        {% endif %}
+        <div class="env-hint" style="margin-top:10px">PNG / JPG / GIF / WebP · max 2MB · square best</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Profile picture</h2>
+    <p style="color:var(--muted);font-size:12px;margin-bottom:14px">Sidebar e Rehan / admin er bame je circle — oi ta.</p>
+    <div class="avatar-edit">
+      <div class="avatar-edit-preview">
+        {% if avatar_url %}
+          <img src="{{ avatar_url }}" alt="">
+        {% else %}
+          <span>{{ user[0]|upper }}</span>
+        {% endif %}
+      </div>
+      <div class="avatar-edit-form">
+        <form method="post" action="/settings/avatar" enctype="multipart/form-data" class="row">
+          <input type="file" name="file" accept="image/png,image/jpeg,image/gif,image/webp" required>
+          <button class="btn gold small">Upload</button>
+        </form>
+        {% if avatar_url %}
+          <form method="post" action="/settings/avatar/delete" style="margin-top:8px">
+            <button class="btn ghost small danger">Remove picture</button>
+          </form>
+        {% endif %}
+        <div class="env-hint" style="margin-top:10px">PNG / JPG / GIF / WebP · max 4MB</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid cols-2">
+  <div class="card">
+    <h2 style="margin-top:0">Editable config</h2>
+    <form method="post" action="/settings">
+      {% for f in fields %}
+        <div class="field">
+          <label>{{ f.key }}
+            {% if f.has_value %}<span class="badge run" style="margin-left:8px">set</span>{% endif %}
+          </label>
+          {% if f.secret %}
+            <input name="{{ f.key }}" type="text"
+                   placeholder="{{ f.value_masked if f.has_value else 'not set' }}">
+          {% else %}
+            <input name="{{ f.key }}" type="text"
+                   value="{{ f.value_masked }}"
+                   placeholder="not set">
+          {% endif %}
+        </div>
+      {% endfor %}
+      <div class="env-hint" style="margin-bottom:14px">
+        ⚠ ADMIN_USER / ADMIN_PASSWORD change korle auto logout hobe — notun diye login korte hobe.
+      </div>
+      <div class="form-actions"><button class="btn gold">Save</button></div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Runtime</h2>
+    <table>
+      <tr><td style="color:var(--muted)">DB mode</td>
+          <td><span class="badge {{ 'run' if db_mode=='supabase' else 'warn' }}">{{ db_mode }}</span></td></tr>
+      <tr><td style="color:var(--muted)">Admin user</td><td>{{ admin_user }}</td></tr>
+      <tr><td style="color:var(--muted)">Public URL</td>
+          <td>{{ public_url or '—' }}</td></tr>
+    </table>
+
+    <h2>Download</h2>
+    <p style="color:var(--muted);font-size:13px">Full panel state — bots, apps, source code, env keys.</p>
+    <a class="btn gold" href="/download/backup">↓ Full backup (.json)</a>
+  </div>
+</div>
+{% endblock %}

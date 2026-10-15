@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" media="(min-width:821px)">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="stylesheet" href="/static/style.css?v=9">
+<script>
+  (function(){
+    try {
+      var t = localStorage.getItem("rwh_theme") || "gold";
+      document.documentElement.setAttribute("data-theme", t);
+    } catch(e) {
+      document.documentElement.setAttribute("data-theme", "gold");
+    }
+  })();
+</script>
+</head>
+<body class="app">
+<canvas id="bg-canvas"></canvas>
+{% if user %}
+<button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Menu">☰</button>
+<div class="sidebar-backdrop" onclick="closeSidebar()"></div>
+<aside class="sidebar" id="sidebar">
+  <div class="brand">
+    <div class="mark">
+      {% if logo_url %}<img src="{{ logo_url }}" alt="">{% endif %}
+    </div>
+    <span>Rehan<span class="gold">Host</span></span>
+  </div>
+
+  <div class="user-chip">
+    <div class="avatar">
+      {% if avatar_url %}
+        <img src="{{ avatar_url }}" alt="">
+      {% else %}
+        {{ user[0]|upper }}
+      {% endif %}
+    </div>
+    <div class="who">
+      <strong>{{ user }}</strong>
+      <span>admin</span>
+    </div>
+  </div>
+
+  <nav id="main-nav">
+    <a href="/" class="{{ 'active' if page=='dashboard' else '' }}" data-nav>
+      <span class="nav-ico">◈</span><span>Dashboard</span>
+    </a>
+    <a href="/apps" class="{{ 'active' if page=='apps' else '' }}" data-nav>
+      <span class="nav-ico">▤</span><span>Web Apps</span>
+    </a>
+    <a href="/bots" class="{{ 'active' if page=='bots' else '' }}" data-nav>
+      <span class="nav-ico">◇</span><span>Bots</span>
+    </a>
+    <a href="/settings" class="{{ 'active' if page=='settings' else '' }}" data-nav>
+      <span class="nav-ico">⚙</span><span>Settings</span>
+    </a>
+  </nav>
+
+  <div class="theme-row">
+    <span class="label">Theme</span>
+    <button type="button" class="theme-dot" data-theme-val="gold"
+            onclick="window.applyTheme && window.applyTheme('gold')"
+            title="Gold" aria-label="Gold"></button>
+    <button type="button" class="theme-dot" data-theme-val="green"
+            onclick="window.applyTheme && window.applyTheme('green')"
+            title="Green" aria-label="Green"></button>
+    <button type="button" class="theme-dot" data-theme-val="red"
+            onclick="window.applyTheme && window.applyTheme('red')"
+            title="Red" aria-label="Red"></button>
+    <button type="button" class="theme-dot" data-theme-val="cyan"
+            onclick="window.applyTheme && window.applyTheme('cyan')"
+            title="Cyan" aria-label="Cyan"></button>
+  </div>
+
+  <div class="side-foot">
+    <a href="/download/backup" class="btn ghost small">↓ Backup</a>
+    <a href="/logout" class="btn ghost small">Logout</a>
+  </div>
+</aside>
+{% endif %}
+<main class="main page-enter">
+{% block content %}{% endblock %}
+</main>
+<div id="toasts"></div>
+<div id="page-loading"></div>
+<script src="/static/app.js?v=9" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

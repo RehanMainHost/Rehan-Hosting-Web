@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Web Apps — {{ app_name }}{% endblock %}
+{% block content %}
+{% if app %}
+  <h1>{{ app.name }} <span class="gold">·</span> {{ app.type }}</h1>
+  <p class="sub">{{ app.url or 'no url' }} · {{ app.created_at[:19] }}
+    {% if restarts %} · <span style="color:var(--gold-lt)">restarts {{ restarts }}</span>{% endif %}
+  </p>
+
+  <div class="row" style="margin-bottom:18px">
+    {% if app.status == 'hosted' or live %}
+      <a class="btn gold" href="/site/{{ app.id }}/" target="_blank">↗ Open site</a>
+    {% endif %}
+    {% if is_dynamic %}
+      <form method="post" action="/apps/{{ app.id }}/start" style="display:inline">
+        <button class="btn gold">▶ Start</button>
+      </form>
+      <form method="post" action="/apps/{{ app.id }}/stop" style="display:inline">
+        <button class="btn">■ Stop</button>
+      </form>
+      <form method="post" action="/apps/{{ app.id }}/restart" style="display:inline">
+        <button class="btn">⟳ Restart</button>
+      </form>
+    {% endif %}
+    <a class="btn ghost" href="/download/app/{{ app.id }}">↓ Download .zip</a>
+    <form method="post" action="/apps/{{ app.id }}/delete" style="display:inline"
+          onsubmit="return confirm('Delete {{ app.name }}?')">
+      <button class="btn danger">Delete</button>
+    </form>
+    <span class="badge {{ 'run' if live else 'stop' }}">
+      <span class="dot"></span>{{ 'running' if live else app.status }}
+    </span>
+    {% if restarts %}
+      <span class="badge warn">↻ {{ restarts }} auto-restart{{ 's' if restarts != 1 else '' }}</span>
+    {% endif %}
+  </div>
+
+  {% if dormant %}
+    <div class="env-hint" style="border-left-color:var(--err);background:rgba(248,113,113,.06);margin-bottom:14px">
+      ⛔ <strong>Dormant</strong> — 5 restart limit in 5 min. Code fix kore abar Start kor.
+    </div>
+  {% endif %}
+
+  {% if is_dynamic %}
+    <h2>Auto-restart</h2>
+    <div class="card">
+      <table>
+        <tr><td style="color:var(--muted)">Status</td>
+            <td><span class="badge {{ 'err' if dormant else ('run' if live else 'stop') }}">
+              {{ 'dormant' if dormant else ('running' if live else app.status) }}</span></td></tr>
+        <tr><td style="color:var(--muted)">Port</td><td class="env-val">{{ port or '—' }}</td></tr>
+        <tr><td style="color:var(--muted)">Restarts</td><td class="env-val">{{ restarts }}</td></tr>
+        <tr><td style="color:var(--muted)">Trigger</td>
+            <td class="env-val">process exit / crash · watchdog tick 5s</td></tr>
+        <tr><td style="color:var(--muted)">Limit</td>
+            <td class="env-val">5 restarts / 5 min → dormant</td></tr>
+      </table>
+    </div>
+  {% else %}
+    <div class="env-hint" style="margin-bottom:14px">
+      kind <code>{{ app.type }}</code> — in-process serve, kono persistent process nei (crash hoy na).
+    </div>
+  {% endif %}
+
+  <div class="grid cols-2">
+    <div class="card">
+      <h2 style="margin-top:0">Auto-detected</h2>
+      <table>
+        <tr><td style="color:var(--muted)">Kind</td><td><span class="badge warn">{{ app.type }}</span></td></tr>
+        <tr><td style="color:var(--muted)">Entry</td><td class="env-val">{{ app.entry or '—' }}</td></tr>
+        <tr><td style="color:var(--muted)">Run command</td><td class="env-val">{{ app.run_cmd or '—' }}</td></tr>
+        <tr><td style="color:var(--muted)">Static root</td><td class="env-val">{{ app.static_root or '—' }}</td></tr>
+      </table>
+
+      <h2>Metadata</h2>
+      <table>
+        <tr><td style="color:var(--muted)">Repo</td><td>{{ app.repo or '—' }}</td></tr>
+        <tr><td style="color:var(--muted)">URL</td><td>{{ app.url or '—' }}</td></tr>
+      </table>
+
+      {% if files %}
+        <h2>Uploaded files ({{ files|length }})</h2>
+        <div class="filelist">{% for f in files %}<span class="file-pill">{{ f }}</span>{% endfor %}</div>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">Environment variables</h2>
+      {% if env %}
+        <table>
+          <thead><tr><th>Key</th><th>Value</th><th></th></tr></thead>
+          <tbody>
+          {% for k, v in env.items() %}
+            <tr>
+              <td class="env-key">{{ k }}</td>
+              <td class="env-val">{{ v or '—' }}</td>
+              <td style="text-align:right">
+                <form method="post" action="/apps/{{ app.id }}/env/delete" style="display:inline"
+                      onsubmit="return confirm('Remove {{ k }}?')">
+                  <input type="hidden" name="key" value="{{ k }}">
+                  <button class="btn ghost small danger" style="padding:4px 9px">✕</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p style="color:var(--muted);font-size:13px">No env vars.</p>
+      {% endif %}
+      <form class="env-add" method="post" action="/apps/{{ app.id }}/env">
+        <input name="key" placeholder="KEY" required>
+        <input name="value" placeholder="value">
+        <button class="btn gold">+ Add</button>
+      </form>
+    </div>
+  </div>
+
+  <h2>Live logs</h2>
+  <div class="logbox" data-app="{{ app.id }}"><span class="caret"></span></div>
+
+  <div style="margin-top:20px"><a class="btn ghost" href="/apps">← All apps</a></div>
+{% else %}
+  <h1>Web Apps</h1>
+  <p class="sub">.zip upload kor — entry auto-detect, dynamic app crash hole auto-restart.</p>
+
+  <div class="card" style="margin-bottom:22px">
+    <h2 style="margin-top:0">Register / host app</h2>
+    <form method="post" action="/apps" enctype="multipart/form-data">
+      <div class="grid cols-2">
+        <div>
+          <div class="field">
+            <label>File — .zip</label>
+            <input type="file" name="file" accept=".zip">
+            <div class="env-hint">
+              <strong>auto detect:</strong><br>
+              • <code>index.html</code> → static (in-process)<br>
+              • <code>index.php</code>/<code>*.php</code> → PHP (in-process)<br>
+              • <code>app.py</code>/<code>main.py</code>/<code>manage.py</code>/<code>package.json</code> → dynamic (spawn+watchdog)<br>
+              • <code>.env</code>/<code>config.py</code>/<code>config.json</code> → env vars<br>
+              • <strong>name</strong> → zip filename
+            </div>
+          </div>
+          <div class="field">
+            <label>Type — optional (auto = detect)</label>
+            <select name="type">
+              <option value="auto">auto detect</option>
+              <option value="static">static</option>
+              <option value="php">php</option>
+              <option value="web">web service (python/node)</option>
+              <option value="worker">worker</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <div class="field"><label>Name — optional</label><input name="name" placeholder="auto from filename"></div>
+          <div class="field"><label>Repo (optional)</label><input name="repo" placeholder="https://github.com/..."></div>
+          <div class="field"><label>URL (optional)</label><input name="url" placeholder="auto if blank"></div>
+        </div>
+      </div>
+      <div class="form-actions"><button class="btn gold">Register</button></div>
+    </form>
+  </div>
+
+  <h2>Your apps</h2>
+  {% if apps %}
+    {% for a in apps %}
+      <div class="item-card">
+        <div class="item-head">
+          <div class="item-title">
+            <a href="/apps/{{ a.id }}"><strong>{{ a.name }}</strong></a>
+            <span class="item-sub">{{ a.type }} · {{ a.file_count or 0 }} files · {{ a.entry or '—' }}
+              {% if a.restarts %} · ↻{{ a.restarts }}{% endif %}
+            </span>
+          </div>
+          <div class="item-actions">
+            <span class="badge {{ 'run' if a.live else 'stop' }}">
+              <span class="dot"></span>{{ 'running' if a.live else a.status }}
+            </span>
+            {% if a.status == 'hosted' or a.live %}
+              <a class="btn gold small" href="/site/{{ a.id }}/" target="_blank">↗</a>
+            {% endif %}
+            <a class="btn ghost small" href="/download/app/{{ a.id }}" title="Download .zip">↓</a>
+            <a class="btn ghost small" href="/apps/{{ a.id }}" title="Open">↗</a>
+          </div>
+        </div>
+        <div class="logbox mini" data-app="{{ a.id }}"><span class="caret"></span></div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="card empty"><div class="icon">◈</div><div>No apps yet.</div></div>
+  {% endif %}
+{% endif %}
+{% endblock %}

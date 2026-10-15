@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — {{ app_name }}{% endblock %}
+{% block content %}
+<h1>Dashboard <span class="gold">·</span></h1>
+<p class="sub">Control plane — web apps, telegram bots, one bench.</p>
+
+<div class="cpu-widget">
+  <div class="cpu-head">
+    <span class="cpu-label">System Load</span>
+    <span class="cpu-val" id="cpu-load">—<small>%</small></span>
+  </div>
+  <canvas id="cpu-canvas"></canvas>
+  <div class="cpu-meta">
+    <span>cores <b id="cpu-cores">—</b></span>
+    <span>ram <b id="cpu-ram">—</b></span>
+    <span>uptime <b id="cpu-uptime">—</b></span>
+  </div>
+</div>
+
+<div class="grid cols-3" style="margin-top:18px">
+  <div class="card">
+    <div class="stat-label">Web Apps</div>
+    <div class="stat-value" data-count="{{ stats.apps }}">0</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Bots</div>
+    <div class="stat-value" data-count="{{ stats.bots }}">0</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Bots Running</div>
+    <div class="stat-value"><span class="gold" data-count="{{ stats.running }}">0</span></div>
+  </div>
+</div>
+
+<h2>Recent bots</h2>
+{% if bots %}
+<div class="card" style="padding:6px 0">
+<table>
+  <thead><tr><th>Name</th><th>File</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for b in bots %}
+    <tr>
+      <td><a href="/bots/{{ b.id }}"><strong>{{ b.name }}</strong></a></td>
+      <td style="color:var(--muted)">{{ b.filename }}</td>
+      <td>
+        {% if b.live %}<span class="badge run"><span class="dot"></span>running</span>
+        {% else %}<span class="badge stop"><span class="dot"></span>stopped</span>{% endif %}
+      </td>
+      <td style="text-align:right"><a class="btn ghost small" href="/bots/{{ b.id }}">Open →</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card empty">
+  <div class="icon">◇</div>
+  <div>No bots yet.</div>
+  <a class="btn gold" href="/bots" style="margin-top:14px">Add your first bot</a>
+</div>
+{% endif %}
+
+<h2>Recent apps</h2>
+{% if apps %}
+<div class="card" style="padding:6px 0">
+<table>
+  <thead><tr><th>Name</th><th>Type</th><th>URL</th><th></th></tr></thead>
+  <tbody>
+  {% for a in apps %}
+    <tr>
+      <td><a href="/apps/{{ a.id }}"><strong>{{ a.name }}</strong></a></td>
+      <td><span class="badge stop">{{ a.type }}</span></td>
+      <td style="color:var(--muted)">{{ a.url or '—' }}</td>
+      <td style="text-align:right"><a class="btn ghost small" href="/apps/{{ a.id }}">Open →</a></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<div class="card empty">
+  <div class="icon">◈</div>
+  <div>No web apps registered.</div>
+  <a class="btn gold" href="/apps" style="margin-top:14px">Register an app</a>
+</div>
+{% endif %}
+{% endblock %}
