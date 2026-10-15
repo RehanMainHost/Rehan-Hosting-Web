@@ -13,7 +13,8 @@ from fastapi.templating import Jinja2Templates
 from config import settings, UPLOAD_DIR, AVATAR_DIR, LOGO_DIR, EDITABLE_KEYS, SECRET_KEYS
 import db, auth
 from supervisor import (sup, appsup, extract_bundle, applog, applog_snapshot,
-                        detect_token, name_from_filename, detect_entry)
+                        detect_token, name_from_filename, detect_entry,
+                        install_requirements, extract_requirements)
 
 # ============================================================
 # constants
@@ -67,6 +68,10 @@ async def lifespan(app: FastAPI):
 
     db.init()
     _migrate_apps_columns()
+    try:
+        db.migrate_runtime_columns()
+    except Exception as _e:
+        print(f'[boot] runtime column migration: {_e}')
     _apply_db_settings()
     db.ensure_admin(settings.ADMIN_USER, auth.hash_password(settings.ADMIN_PASSWORD))
 
@@ -345,11 +350,21 @@ async def bot_create(request: Request, user=Depends(require_user),
                 'async def handle_update(update):\n'
                 '    log("got update: " + str(update.get("update_id")))\n').format(name=name)
 
+    reqs = ""
+    if file is not None and file.filename and file.filename.lower().endswith(".zip"):
+        try:
+            _src, _nm, _env2, _files = extract_bundle(raw)
+            reqs = extract_requirements(_files)
+        except Exception:
+            reqs = ""
+
     db.execute(
-        "INSERT INTO bots (id,user_id,name,token_enc,code,filename,webhook_secret,status,created_at) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO bots (id,user_id,name,token_enc,code,filename,webhook_secret,status,created_at,requirements) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (bid, user, name, auth.encrypt(token or ""), code, filename,
-         uuid.uuid4().hex, "stopped", datetime.utcnow().isoformat()))
+         uuid.uuid4().hex, "stopped", datetime.utcnow().isoformat(), reqs))
+    if reqs:
+        applog(bid, "info", f"detected requirements.txt ({len(reqs.splitlines())} lines) — install hobe Start e")
 
     if detected_env:
         _save_env("bot", bid, detected_env)
@@ -385,6 +400,21 @@ async def bot_start(bid: str, request: Request, user=Depends(require_user)):
     if not row["token"]:
         db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
         return RedirectResponse(f"/bots/{bid}", 303)
+
+    # ---- auto-install requirements if changed ----
+    reqs = (row.get("requirements") or "").strip()
+    if reqs:
+        import hashlib as _hl
+        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+        prev_hash = row.get("deps_hash") or ""
+        if cur_hash != prev_hash:
+            ok = await install_requirements(reqs, bid)
+            if ok:
+                db.execute("UPDATE bots SET deps_hash=? WHERE id=?", (cur_hash, bid))
+            else:
+                db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
+                return RedirectResponse(f"/bots/{bid}", 303)
+
     env = _load_env("bot", bid)
     try:
         await sup.start(row, mode=mode, env=env)
@@ -435,6 +465,7 @@ async def stream_all(request: Request, user=Depends(require_user)):
     async def gen():
         seen_bot: dict = {}
         seen_app: dict = {}
+        seen_bot_ring: dict = {}
         for b in db.fetchall("SELECT id FROM bots WHERE user_id=?", (user,)):
             rt = sup.get(b["id"])
             if rt: seen_bot[b["id"]] = len(rt.logs)
@@ -447,16 +478,24 @@ async def stream_all(request: Request, user=Depends(require_user)):
                 bots = db.fetchall("SELECT id FROM bots WHERE user_id=?", (user,))
             except Exception:
                 bots = []
+            seen_bot_ring = seen_bot_ring if 'seen_bot_ring' in dir() else {}
             for b in bots:
-                rt = sup.get(b["id"])
-                if not rt: continue
-                cur = seen_bot.get(b["id"], 0)
-                lines = list(rt.logs)
+                bid = b["id"]
+                rt = sup.get(bid)
+                lines = list(rt.logs) if rt else []
+                cur = seen_bot.get(bid, 0)
                 if len(lines) > cur:
                     for l in lines[cur:]:
-                        payload = {"kind": "bot", "id": b["id"], **l}
+                        payload = {"kind": "bot", "id": bid, **l}
                         yield f"data: {json.dumps(payload)}\n\n"
-                    seen_bot[b["id"]] = len(lines)
+                    seen_bot[bid] = len(lines)
+                ring = applog_snapshot(bid)
+                cur2 = seen_bot_ring.get(bid, 0)
+                if len(ring) > cur2:
+                    for l in ring[cur2:]:
+                        payload = {"kind": "bot", "id": bid, **l}
+                        yield f"data: {json.dumps(payload)}\n\n"
+                    seen_bot_ring[bid] = len(ring)
 
             try:
                 apps_now = db.fetchall("SELECT id FROM apps WHERE user_id=?", (user,))
@@ -584,12 +623,22 @@ async def app_create(request: Request, user=Depends(require_user),
         }
         type = mapping.get(entry_info["kind"], "static")
 
+    app_reqs = ""
+    if file is not None and file.filename and file.filename.lower().endswith(".zip"):
+        try:
+            app_reqs = extract_requirements(file_map)
+        except Exception:
+            app_reqs = ""
+
     db.execute(
         "INSERT INTO apps (id,user_id,name,type,repo,service_id,url,status,created_at,"
-        "entry,run_cmd,static_root) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "entry,run_cmd,static_root,requirements) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (aid, user, name, type, repo, service_id, url, status,
          datetime.utcnow().isoformat(),
-         entry_info["entry"], entry_info["run_cmd"], entry_info["static_root"]))
+         entry_info["entry"], entry_info["run_cmd"], entry_info["static_root"],
+         app_reqs))
+    if app_reqs:
+        applog(aid, "info", f"detected requirements.txt ({len(app_reqs.splitlines())} lines) — install hobe Start e")
 
     if detected_env:
         _save_env("app", aid, detected_env)
@@ -647,6 +696,21 @@ async def app_start(aid: str, request: Request, user=Depends(require_user)):
     if not d.exists():
         applog(aid, "error", "no files — reupload kor")
         return RedirectResponse(f"/apps/{aid}", 303)
+
+    # auto-install requirements if changed
+    reqs = (row.get("requirements") or "").strip()
+    if reqs:
+        import hashlib as _hl
+        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+        prev_hash = row.get("deps_hash") or ""
+        if cur_hash != prev_hash:
+            ok = await install_requirements(reqs, aid)
+            if ok:
+                db.execute("UPDATE apps SET deps_hash=? WHERE id=?", (cur_hash, aid))
+            else:
+                db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
+                return RedirectResponse(f"/apps/{aid}", 303)
+
     env = _load_env("app", aid)
     rt, ok = await appsup.start(row, d, env=env)
     if ok:

@@ -117,7 +117,13 @@
   </div>
 
   <h2>Live logs</h2>
-  <div class="logbox" data-app="{{ app.id }}"><span class="caret"></span></div>
+  <div class="logbox-wrap">
+    <div class="logbox" id="logbox" data-app="{{ app.id }}"><span class="caret"></span></div>
+    <div class="logbox-actions">
+      <button type="button" class="btn ghost small" onclick="copyLogs('logbox')" title="Copy logs">⧉</button>
+      <button type="button" class="btn ghost small" onclick="clearLogs('logbox')" title="Clear">✕</button>
+    </div>
+  </div>
 
   <div style="margin-top:20px"><a class="btn ghost" href="/apps">← All apps</a></div>
 {% else %}
@@ -184,7 +190,12 @@
             <a class="btn ghost small" href="/apps/{{ a.id }}" title="Open">↗</a>
           </div>
         </div>
-        <div class="logbox mini" data-app="{{ a.id }}"><span class="caret"></span></div>
+        <div class="logbox-wrap">
+          <div class="logbox mini" id="logbox-{{ a.id }}" data-app="{{ a.id }}"><span class="caret"></span></div>
+          <div class="logbox-actions">
+            <button type="button" class="btn ghost small" onclick="copyLogs('logbox-{{ a.id }}')" title="Copy">⧉</button>
+          </div>
+        </div>
       </div>
     {% endfor %}
   {% else %}

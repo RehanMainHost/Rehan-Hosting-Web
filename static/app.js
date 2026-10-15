@@ -632,4 +632,52 @@
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[c]));
   }
+
+  // ============================================================
+  // LOG COPY / CLEAR
+  // ============================================================
+  window.copyLogs = function (id) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    let text = "";
+    box.querySelectorAll(".logline").forEach(el => {
+      text += el.innerText + "\n";
+    });
+    if (!text.trim()) text = box.innerText || "";
+    if (!text.trim()) {
+      if (window.toast) window.toast("Logs empty", "err");
+      return;
+    }
+    const done = () => { if (window.toast) window.toast("Logs copied ✓", "ok"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  };
+
+  function fallbackCopy(text, done) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      done();
+    } catch (e) {
+      if (window.toast) window.toast("copy failed — select manually", "err");
+    }
+  }
+
+  window.clearLogs = function (id) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    box.innerHTML = '<span class="caret"></span>';
+    if (window.toast) window.toast("Logs cleared", "ok");
+  };
+
+
 })();

@@ -1099,3 +1099,51 @@ body.app{
   position:fixed !important;
   z-index:100 !important;
 }
+
+/* ============================================================
+   LOGBOX WRAPPER — copy/clear actions, selectable text
+   ============================================================ */
+.logbox-wrap{
+  position:relative;
+}
+.logbox-wrap .logbox-actions{
+  position:absolute;
+  top:8px;
+  right:8px;
+  display:flex;
+  gap:5px;
+  z-index:5;
+  opacity:.55;
+  transition:opacity .18s var(--ease);
+}
+.logbox-wrap:hover .logbox-actions,
+.logbox-wrap:focus-within .logbox-actions{
+  opacity:1;
+}
+.logbox-actions .btn{
+  padding:3px 8px !important;
+  font-size:12px !important;
+  line-height:1;
+  min-width:0;
+  background:rgba(20,20,24,.82) !important;
+  backdrop-filter:blur(4px);
+  border-color:rgba(var(--accent-rgb),.25) !important;
+  color:var(--text-dim) !important;
+}
+.logbox-actions .btn:hover{
+  color:var(--gold-lt) !important;
+  border-color:rgba(var(--accent-rgb),.55) !important;
+}
+
+/* text really selectable inside logbox (override global guards) */
+.logbox,
+.logbox *,
+.logline,
+.logline *{
+  -webkit-user-select:text !important;
+  user-select:text !important;
+  -webkit-touch-callout:default !important;
+}
+.logbox{
+  cursor:text;
+}

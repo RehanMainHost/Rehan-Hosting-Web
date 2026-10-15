@@ -14,10 +14,12 @@ SCHEMA = [
 """CREATE TABLE IF NOT EXISTS apps (
   id TEXT PRIMARY KEY, user_id TEXT, name TEXT, type TEXT, repo TEXT,
   service_id TEXT, url TEXT, status TEXT, created_at TEXT,
-  entry TEXT, run_cmd TEXT, static_root TEXT)""",
+  entry TEXT, run_cmd TEXT, static_root TEXT,
+  requirements TEXT, deps_hash TEXT)""",
 """CREATE TABLE IF NOT EXISTS bots (
   id TEXT PRIMARY KEY, user_id TEXT, name TEXT, code TEXT,
-  token_enc TEXT, filename TEXT, webhook_secret TEXT, status TEXT, created_at TEXT)""",
+  token_enc TEXT, filename TEXT, webhook_secret TEXT, status TEXT, created_at TEXT,
+  requirements TEXT, deps_hash TEXT)""",
 """CREATE TABLE IF NOT EXISTS env_vars (
   id TEXT PRIMARY KEY, owner_type TEXT, owner_id TEXT, key TEXT, value_enc TEXT)""",
 """CREATE TABLE IF NOT EXISTS logs (
@@ -185,3 +187,15 @@ def working_url_hint() -> str:
         return "unknown"
     m = re.match(r"postgresql://[^@]+@([^/]+)", _WORKING_URL)
     return m.group(1) if m else "unknown"
+
+def migrate_runtime_columns():
+    """Add requirements/deps_hash columns if missing (sqlite + pg safe)."""
+    for table in ("bots", "apps"):
+        for col in ("requirements", "deps_hash"):
+            try:
+                db_check = fetchone(f"SELECT {col} FROM {table} LIMIT 1")
+            except Exception:
+                try:
+                    execute(f"ALTER TABLE {table} ADD COLUMN {col} TEXT")
+                except Exception:
+                    pass

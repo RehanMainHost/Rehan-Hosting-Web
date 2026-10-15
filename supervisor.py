@@ -725,3 +725,72 @@ class _AppSupervisor:
             except Exception: pass
 
 appsup = _AppSupervisor()
+
+
+# ============================================================
+# REQUIREMENTS AUTO-INSTALL
+# ============================================================
+import sys, tempfile
+
+async def install_requirements(requirements_text: str, log_id: str, timeout: int = 420) -> bool:
+    """Install a requirements.txt payload. Logs stream to applog(log_id)."""
+    text = (requirements_text or "").strip()
+    if not text:
+        return True
+    lines = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
+    applog(log_id, "info", f"installing {len(lines)} requirement(s)…")
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+            f.write(text)
+            tmp_path = f.name
+    except Exception as e:
+        applog(log_id, "error", f"tmp file failed: {e}")
+        return False
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "pip", "install", "--no-cache-dir",
+            "--disable-pip-version-check", "-r", tmp_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except Exception as e:
+        applog(log_id, "error", f"pip spawn failed: {e}")
+        try: os.unlink(tmp_path)
+        except Exception: pass
+        return False
+
+    try:
+        try:
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            try: proc.kill()
+            except Exception: pass
+            applog(log_id, "error", f"pip timeout ({timeout}s)")
+            return False
+        text_out = (out or b"").decode("utf-8", "ignore")
+        tail = [l for l in text_out.splitlines() if l.strip()][-25:]
+        for l in tail:
+            applog(log_id, "info", "pip: " + l)
+        if proc.returncode == 0:
+            applog(log_id, "info", "requirements installed ✓")
+            return True
+        applog(log_id, "error", f"pip exited {proc.returncode}")
+        return False
+    finally:
+        if tmp_path:
+            try: os.unlink(tmp_path)
+            except Exception: pass
+
+
+def extract_requirements(file_map: dict) -> str:
+    """Pick requirements.txt (or pyproject.toml deps) from a zip file_map."""
+    for path, data in (file_map or {}).items():
+        base = path.split("/")[-1].lower()
+        if base in ("requirements.txt", "req.txt"):
+            try:
+                return data.decode("utf-8", "ignore")
+            except Exception:
+                return ""
+    return ""
