@@ -1130,4 +1130,9 @@ async def api_stats(user=Depends(require_user)):
 # ============================================================
 @app.get("/healthz")
 async def healthz():
-    return {"ok": True, "db": settings.DB_MODE, "bots": len(sup.bots)}
+    try:
+        hint = db.working_url_hint()
+    except Exception:
+        hint = "?"
+    return {"ok": True, "db": settings.DB_MODE, "db_host": hint,
+            "bots": len(sup.bots), "apps": len(appsup.apps)}
