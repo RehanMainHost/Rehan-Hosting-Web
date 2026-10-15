@@ -75,15 +75,29 @@ async def lifespan(app: FastAPI):
     _apply_db_settings()
     db.ensure_admin(settings.ADMIN_USER, auth.hash_password(settings.ADMIN_PASSWORD))
 
-    # boot recovery: restart bots if auto_start=1 OR status='running'
+    # boot recovery: start ALL bots that have a token (auto-start always on)
     try:
-        rows = db.fetchall("SELECT * FROM bots WHERE auto_start=1 OR status='running'")
+        rows = db.fetchall("SELECT * FROM bots")
         for row in rows:
             try:
-                row["token"] = auth.decrypt(row["token_enc"] or "")
-                if not row["token"]:
-                    print(f"[boot] bot {row.get('id')} — no token, skipped")
+                tok = auth.decrypt(row["token_enc"] or "")
+                if not tok:
+                    db.execute("UPDATE bots SET status='error' WHERE id=?", (row["id"],))
+                    print(f"[boot] bot {row.get('name')} — no token, skipped")
                     continue
+                row["token"] = tok
+                reqs = (row.get("requirements") or "").strip()
+                if reqs:
+                    import hashlib as _hl
+                    cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+                    if cur_hash != (row.get("deps_hash") or ""):
+                        print(f"[boot] bot {row.get('name')} — installing deps…")
+                        ok = await install_requirements(reqs, row["id"])
+                        if ok:
+                            db.execute("UPDATE bots SET deps_hash=? WHERE id=?", (cur_hash, row["id"]))
+                        else:
+                            db.execute("UPDATE bots SET status='error' WHERE id=?", (row["id"],))
+                            continue
                 env = _load_env("bot", row["id"])
                 mode = "webhook" if settings.PUBLIC_URL else "polling"
                 await sup.start(row, mode=mode, env=env)
@@ -91,12 +105,16 @@ async def lifespan(app: FastAPI):
                 print(f"[boot] bot {row.get('name')} auto-started")
             except Exception as e:
                 print(f"[boot] bot {row.get('id')} restore failed: {e}")
+                try:
+                    db.execute("UPDATE bots SET status='error' WHERE id=?", (row["id"],))
+                except Exception:
+                    pass
     except Exception as e:
         print(f"[boot] bot restore scan failed: {e}")
 
-    # boot recovery: restart dynamic apps if auto_start=1 OR status='running'
+    # boot recovery: start ALL dynamic apps (static/php stay in-process)
     try:
-        rows = db.fetchall("SELECT * FROM apps WHERE auto_start=1 OR status='running'")
+        rows = db.fetchall("SELECT * FROM apps")
         for row in rows:
             try:
                 kind = (row.get("type") or "").lower()
@@ -106,6 +124,18 @@ async def lifespan(app: FastAPI):
                 d = _app_dir(row["id"])
                 if not d.exists():
                     continue
+                reqs = (row.get("requirements") or "").strip()
+                if reqs:
+                    import hashlib as _hl
+                    cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+                    if cur_hash != (row.get("deps_hash") or ""):
+                        print(f"[boot] app {row.get('name')} — installing deps…")
+                        ok = await install_requirements(reqs, row["id"])
+                        if ok:
+                            db.execute("UPDATE apps SET deps_hash=? WHERE id=?", (cur_hash, row["id"]))
+                        else:
+                            db.execute("UPDATE apps SET status='error' WHERE id=?", (row["id"],))
+                            continue
                 env = _load_env("app", row["id"])
                 rt, ok = await appsup.start(row, d, env=env)
                 if ok:
@@ -292,6 +322,79 @@ async def dashboard(request: Request, user=Depends(require_user)):
     return render("dashboard.html", request, page="dashboard",
                   apps=apps, bots=bots, stats=stats)
 
+
+# ============================================================
+# background install + autostart helpers
+# ============================================================
+async def _bg_install_then_start_bot(bid: str):
+    row = db.fetchone("SELECT * FROM bots WHERE id=?", (bid,))
+    if not row:
+        return
+    reqs = (row.get("requirements") or "").strip()
+    if reqs:
+        import hashlib as _hl
+        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+        if cur_hash != (row.get("deps_hash") or ""):
+            ok = await install_requirements(reqs, bid)
+            if not ok:
+                db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
+                applog(bid, "error", "install fail — bot start hoyni")
+                return
+            db.execute("UPDATE bots SET deps_hash=? WHERE id=?", (cur_hash, bid))
+    # now actually start
+    row = db.fetchone("SELECT * FROM bots WHERE id=?", (bid,))
+    if not row:
+        return
+    row["token"] = auth.decrypt(row["token_enc"] or "")
+    if not row["token"]:
+        db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
+        applog(bid, "error", "no token — start korte parchi na")
+        return
+    env = _load_env("bot", bid)
+    mode = "webhook" if settings.PUBLIC_URL else "polling"
+    try:
+        await sup.start(row, mode=mode, env=env)
+        db.execute("UPDATE bots SET status='running' WHERE id=?", (bid,))
+        applog(bid, "info", "✓ bot started")
+    except Exception as e:
+        db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
+        applog(bid, "error", f"start failed: {e}")
+
+
+async def _bg_install_then_start_app(aid: str):
+    row = db.fetchone("SELECT * FROM apps WHERE id=?", (aid,))
+    if not row:
+        return
+    kind = (row.get("type") or "").lower()
+    if kind in ("static", "php"):
+        return
+    reqs = (row.get("requirements") or "").strip()
+    if reqs:
+        import hashlib as _hl
+        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
+        if cur_hash != (row.get("deps_hash") or ""):
+            ok = await install_requirements(reqs, aid)
+            if not ok:
+                db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
+                applog(aid, "error", "install fail — app start hoyni")
+                return
+            db.execute("UPDATE apps SET deps_hash=? WHERE id=?", (cur_hash, aid))
+    d = _app_dir(aid)
+    if not d.exists():
+        return
+    env = _load_env("app", aid)
+    try:
+        rt, ok = await appsup.start(row, d, env=env)
+        if ok:
+            db.execute("UPDATE apps SET status='running' WHERE id=?", (aid,))
+            applog(aid, "info", "✓ app started")
+        else:
+            db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
+    except Exception as e:
+        db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
+        applog(aid, "error", f"start failed: {e}")
+
+
 # ============================================================
 # bots
 # ============================================================
@@ -413,36 +516,11 @@ async def bot_env_del(bid: str, request: Request, user=Depends(require_user),
 
 @app.post("/bots/{bid}/start")
 async def bot_start(bid: str, request: Request, user=Depends(require_user)):
-    row = db.fetchone("SELECT * FROM bots WHERE id=? AND user_id=?", (bid, user))
+    row = db.fetchone("SELECT id FROM bots WHERE id=? AND user_id=?", (bid, user))
     if not row: raise HTTPException(404)
-    mode = "webhook" if settings.PUBLIC_URL else "polling"
-    row["token"] = auth.decrypt(row["token_enc"])
-    if not row["token"]:
-        db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
-        return RedirectResponse(f"/bots/{bid}", 303)
-
-    # ---- auto-install requirements if changed ----
-    reqs = (row.get("requirements") or "").strip()
-    if reqs:
-        import hashlib as _hl
-        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
-        prev_hash = row.get("deps_hash") or ""
-        if cur_hash != prev_hash:
-            ok = await install_requirements(reqs, bid)
-            if ok:
-                db.execute("UPDATE bots SET deps_hash=? WHERE id=?", (cur_hash, bid))
-            else:
-                db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
-                return RedirectResponse(f"/bots/{bid}", 303)
-
-    env = _load_env("bot", bid)
-    try:
-        await sup.start(row, mode=mode, env=env)
-        db.execute("UPDATE bots SET status='running' WHERE id=?", (bid,))
-    except Exception as e:
-        db.execute("UPDATE bots SET status='error' WHERE id=?", (bid,))
-        rt = sup.get(bid)
-        if rt: rt.log("error", f"start failed: {e}")
+    db.execute("UPDATE bots SET status='starting' WHERE id=?", (bid,))
+    applog(bid, "info", "start requested — background e cholche")
+    asyncio.create_task(_bg_install_then_start_bot(bid))
     return RedirectResponse(f"/bots/{bid}", 303)
 
 @app.post("/bots/{bid}/stop")
@@ -719,38 +797,18 @@ def _is_dynamic(app_row) -> bool:
 
 @app.post("/apps/{aid}/start")
 async def app_start(aid: str, request: Request, user=Depends(require_user)):
-    row = db.fetchone("SELECT * FROM apps WHERE id=? AND user_id=?", (aid, user))
+    row = db.fetchone("SELECT id,type FROM apps WHERE id=? AND user_id=?", (aid, user))
     if not row: raise HTTPException(404)
-    if not _is_dynamic(row):
+    if (row.get("type") or "").lower() in ("static", "php"):
         applog(aid, "warn", f"kind={row.get('type')} — kono process nai, always served")
         return RedirectResponse(f"/apps/{aid}", 303)
     d = _app_dir(aid)
     if not d.exists():
         applog(aid, "error", "no files — reupload kor")
         return RedirectResponse(f"/apps/{aid}", 303)
-
-    # auto-install requirements if changed
-    reqs = (row.get("requirements") or "").strip()
-    if reqs:
-        import hashlib as _hl
-        cur_hash = _hl.sha256(reqs.encode()).hexdigest()[:16]
-        prev_hash = row.get("deps_hash") or ""
-        if cur_hash != prev_hash:
-            ok = await install_requirements(reqs, aid)
-            if ok:
-                db.execute("UPDATE apps SET deps_hash=? WHERE id=?", (cur_hash, aid))
-            else:
-                db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
-                return RedirectResponse(f"/apps/{aid}", 303)
-
-    env = _load_env("app", aid)
-    rt, ok = await appsup.start(row, d, env=env)
-    if ok:
-        db.execute("UPDATE apps SET status='running' WHERE id=?", (aid,))
-        applog(aid, "info", f"started · port={rt.port} · pid={rt.proc.pid if rt.proc else '?'}")
-    else:
-        db.execute("UPDATE apps SET status='error' WHERE id=?", (aid,))
-        applog(aid, "error", "start failed — see logs")
+    db.execute("UPDATE apps SET status='starting' WHERE id=?", (aid,))
+    applog(aid, "info", "start requested — background e cholche")
+    asyncio.create_task(_bg_install_then_start_app(aid))
     return RedirectResponse(f"/apps/{aid}", 303)
 
 @app.post("/apps/{aid}/stop")

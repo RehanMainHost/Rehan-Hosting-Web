@@ -55,16 +55,10 @@
         <tr><td style="color:var(--muted)">Limit</td>
             <td class="env-val">5 restarts / 5 min → dormant</td></tr>
         <tr><td style="color:var(--muted)">Auto-start on boot</td>
-            <td>
-              <form method="post" action="/apps/{{ app.id }}/autostart" style="display:inline">
-                <button class="btn {{ 'gold' if auto_start else 'ghost' }} small">
-                  {{ '✓ ON' if auto_start else '✗ OFF' }}
-                </button>
-              </form>
+            <td><span class="badge run">✓ forced ON</span>
               <span style="color:var(--muted);font-size:11px;margin-left:8px">
                 deploy/redeploy hole auto start
-              </span>
-            </td></tr>
+              </span></td></tr>
       </table>
     </div>
   {% else %}
