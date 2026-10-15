@@ -15,11 +15,11 @@ SCHEMA = [
   id TEXT PRIMARY KEY, user_id TEXT, name TEXT, type TEXT, repo TEXT,
   service_id TEXT, url TEXT, status TEXT, created_at TEXT,
   entry TEXT, run_cmd TEXT, static_root TEXT,
-  requirements TEXT, deps_hash TEXT)""",
+  requirements TEXT, deps_hash TEXT, auto_start INTEGER DEFAULT 0)""",
 """CREATE TABLE IF NOT EXISTS bots (
   id TEXT PRIMARY KEY, user_id TEXT, name TEXT, code TEXT,
   token_enc TEXT, filename TEXT, webhook_secret TEXT, status TEXT, created_at TEXT,
-  requirements TEXT, deps_hash TEXT)""",
+  requirements TEXT, deps_hash TEXT, auto_start INTEGER DEFAULT 0)""",
 """CREATE TABLE IF NOT EXISTS env_vars (
   id TEXT PRIMARY KEY, owner_type TEXT, owner_id TEXT, key TEXT, value_enc TEXT)""",
 """CREATE TABLE IF NOT EXISTS logs (

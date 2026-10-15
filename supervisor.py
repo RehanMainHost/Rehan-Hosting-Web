@@ -1,5 +1,6 @@
 """Bot runtime + auto-restart + env/config detect + log rings. Hardened."""
-import asyncio, zipfile, io, re, json, os, traceback, time
+import asyncio, zipfile, io, re, json, os, traceback, time, sys, tempfile
+from pathlib import Path
 from collections import deque
 from datetime import datetime
 
@@ -216,12 +217,18 @@ class BotRuntime:
         self._crash_window_start = 0.0
         self._restart_times: list = []
         self._lock = asyncio.Lock()
+        self.internal_mode = None   # 'dispatch' | 'subprocess'
+        self.proc = None
+        self.proc_reader = None
+        self.proc_watchdog = None
+        self.work_dir = None
 
     def log(self, level, msg):
         self.logs.append({"ts": datetime.utcnow().strftime("%H:%M:%S"),
                           "level": level, "msg": str(msg)})
 
     def load(self):
+        """Try in-process dispatch mode first; fallback to subprocess mode."""
         mod = type("BotModule", (), {})()
         ns = {
             "BOT_TOKEN": self.token,
@@ -232,14 +239,35 @@ class BotRuntime:
         for k, v in self.env.items():
             ns.setdefault(k, v)
         mod.__dict__.update(ns)
+
+        # try exec + check for handle_update
+        handler = None
+        exec_ok = True
+        exec_err = None
         try:
             exec(compile(self.code, self.filename, "exec"), mod.__dict__)
-        except Exception:
-            self.log("error", "load failed:\n" + traceback.format_exc())
-            raise
-        self.handler = getattr(mod, "handle_update", None)
-        if self.handler is None:
-            raise RuntimeError("bot code must define: async def handle_update(update): ...")
+            handler = getattr(mod, "handle_update", None)
+        except SyntaxError as e:
+            exec_ok = False
+            exec_err = e
+        except Exception as e:
+            # code runs at import time — could be the bot's own run_polling
+            exec_err = e
+            handler = getattr(mod, "handle_update", None)
+
+        if handler is not None and callable(handler):
+            self.handler = handler
+            self.internal_mode = "dispatch"
+            self.log("info", "mode: dispatch (handle_update found)")
+            return
+
+        # fallback: subprocess mode — bot runs itself
+        self.handler = None
+        self.internal_mode = "subprocess"
+        if exec_err:
+            self.log("info", f"no handle_update — subprocess mode (exec note: {type(exec_err).__name__})")
+        else:
+            self.log("info", "no handle_update — subprocess mode (self-running bot)")
 
     # ---------- crash tracking ----------
     def _record_crash(self):
@@ -260,6 +288,85 @@ class BotRuntime:
         now = time.time()
         self._restart_times = [t for t in self._restart_times if now - t < RESTART_WINDOW]
         return len(self._restart_times) < RESTART_MAX
+
+    # ---------- subprocess mode (self-running bot) ----------
+    async def _spawn_subprocess(self):
+        try:
+            self.work_dir = Path(tempfile.gettempdir()) / f"rwh_bot_{self.bot_id}"
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+            fname = self.filename or "bot.py"
+            # write the entry file
+            target = self.work_dir / fname
+            target.write_text(self.code, encoding="utf-8")
+
+            env = {**os.environ}
+            env["BOT_TOKEN"] = self.token or ""
+            env["BOT_ID"] = self.bot_id
+            env["PYTHONUNBUFFERED"] = "1"
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            for k, v in self.env.items():
+                if k and v is not None:
+                    env[str(k)] = str(v)
+
+            self.proc = await asyncio.create_subprocess_exec(
+                sys.executable, str(target),
+                cwd=str(self.work_dir),
+                env=env,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            self.log("info", f"spawned pid={self.proc.pid} — {fname}")
+            self.proc_reader = asyncio.create_task(self._read_subprocess())
+            self.proc_watchdog = asyncio.create_task(self._watchdog_subprocess())
+            return True
+        except Exception as e:
+            self.log("error", f"spawn failed: {e}\n{traceback.format_exc()}")
+            return False
+
+    async def _read_subprocess(self):
+        try:
+            while self.proc and self.proc.stdout:
+                line = await self.proc.stdout.readline()
+                if not line:
+                    break
+                txt = line.decode("utf-8", "ignore").rstrip("\r\n")
+                if txt:
+                    self.log("info", "bot: " + txt)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            pass
+
+    async def _watchdog_subprocess(self):
+        while self.running:
+            await asyncio.sleep(5)
+            if not self.running:
+                break
+            if self.proc and self.proc.returncode is not None:
+                code = self.proc.returncode
+                self.log("error", f"bot process exited (code {code})")
+                if self.auto_restart:
+                    await self._auto_restart(f"exit code {code}")
+
+    async def _kill_subprocess(self):
+        if not self.proc:
+            return
+        if self.proc.returncode is not None:
+            return
+        try:
+            self.proc.terminate()
+        except ProcessLookupError:
+            return
+        except Exception:
+            pass
+        try:
+            await asyncio.wait_for(self.proc.wait(), timeout=4)
+        except asyncio.TimeoutError:
+            try: self.proc.kill()
+            except Exception: pass
+            try: await asyncio.wait_for(self.proc.wait(), timeout=3)
+            except Exception: pass
 
     async def _safe_handle(self, update):
         try:
@@ -304,12 +411,24 @@ class BotRuntime:
                 self.handler = None
                 self.load()
             except Exception as e:
-                self.log("error", f"reload failed: {e} — staying down")
-                self.running = False
-                return
+                # non-fatal — subprocess mode doesn't need handler
+                self.log("warn", f"reload note: {e}")
             # respawn
             try:
-                if self.mode == "polling":
+                if self.internal_mode == "subprocess":
+                    if self.proc:
+                        await self._kill_subprocess()
+                        self.proc = None
+                    if self.proc_reader:
+                        self.proc_reader.cancel()
+                        self.proc_reader = None
+                    if self.proc_watchdog:
+                        self.proc_watchdog.cancel()
+                        self.proc_watchdog = None
+                    ok = await self._spawn_subprocess()
+                    if not ok:
+                        raise RuntimeError("subprocess respawn failed")
+                elif self.mode == "polling":
                     self.task = asyncio.create_task(self._run_polling())
                 else:
                     await self._set_webhook()
@@ -398,6 +517,16 @@ class BotRuntime:
         self.load()
         self.running = True
         self.started_at = time.time()
+
+        if self.internal_mode == "subprocess":
+            ok = await self._spawn_subprocess()
+            if not ok:
+                self.running = False
+                raise RuntimeError("subprocess spawn failed")
+            self.log("info", f"bot {self.name} started (subprocess) · auto-restart ON")
+            return
+
+        # dispatch mode
         if self.mode == "polling":
             self.task = asyncio.create_task(self._run_polling())
         else:
@@ -408,6 +537,22 @@ class BotRuntime:
 
     async def stop(self):
         self.running = False
+
+        # kill subprocess if any
+        if self.proc_reader:
+            self.proc_reader.cancel()
+            try: await asyncio.wait_for(self.proc_reader, timeout=2)
+            except Exception: pass
+            self.proc_reader = None
+        if self.proc_watchdog:
+            self.proc_watchdog.cancel()
+            try: await asyncio.wait_for(self.proc_watchdog, timeout=2)
+            except Exception: pass
+            self.proc_watchdog = None
+        if self.proc:
+            await self._kill_subprocess()
+            self.proc = None
+
         if self.watchdog:
             self.watchdog.cancel()
             try: await asyncio.wait_for(self.watchdog, timeout=2)

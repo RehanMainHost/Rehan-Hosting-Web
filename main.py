@@ -75,23 +75,28 @@ async def lifespan(app: FastAPI):
     _apply_db_settings()
     db.ensure_admin(settings.ADMIN_USER, auth.hash_password(settings.ADMIN_PASSWORD))
 
-    # boot recovery: restart bots with status='running'
+    # boot recovery: restart bots if auto_start=1 OR status='running'
     try:
-        rows = db.fetchall("SELECT * FROM bots WHERE status='running'")
+        rows = db.fetchall("SELECT * FROM bots WHERE auto_start=1 OR status='running'")
         for row in rows:
             try:
-                row["token"] = auth.decrypt(row["token_enc"])
+                row["token"] = auth.decrypt(row["token_enc"] or "")
+                if not row["token"]:
+                    print(f"[boot] bot {row.get('id')} — no token, skipped")
+                    continue
                 env = _load_env("bot", row["id"])
                 mode = "webhook" if settings.PUBLIC_URL else "polling"
                 await sup.start(row, mode=mode, env=env)
+                db.execute("UPDATE bots SET status='running' WHERE id=?", (row["id"],))
+                print(f"[boot] bot {row.get('name')} auto-started")
             except Exception as e:
                 print(f"[boot] bot {row.get('id')} restore failed: {e}")
     except Exception as e:
         print(f"[boot] bot restore scan failed: {e}")
 
-    # boot recovery: restart dynamic apps with status='running'
+    # boot recovery: restart dynamic apps if auto_start=1 OR status='running'
     try:
-        rows = db.fetchall("SELECT * FROM apps WHERE status='running'")
+        rows = db.fetchall("SELECT * FROM apps WHERE auto_start=1 OR status='running'")
         for row in rows:
             try:
                 kind = (row.get("type") or "").lower()
@@ -103,7 +108,10 @@ async def lifespan(app: FastAPI):
                     continue
                 env = _load_env("app", row["id"])
                 rt, ok = await appsup.start(row, d, env=env)
-                if not ok:
+                if ok:
+                    db.execute("UPDATE apps SET status='running' WHERE id=?", (row["id"],))
+                    print(f"[boot] app {row.get('name')} auto-started")
+                else:
                     db.execute("UPDATE apps SET status='error' WHERE id=?", (row["id"],))
             except Exception as e:
                 print(f"[boot] app {row.get('id')} restore failed: {e}")
@@ -307,7 +315,8 @@ async def bot_detail(bid: str, request: Request, user=Depends(require_user)):
     restarts = int(getattr(rt, "restarts", 0)) if rt else 0
     env = _load_env("bot", bid)
     return render("bots.html", request, page="bots", bots=None, bot=row,
-                  live=live, dormant=dormant, restarts=restarts, env=env)
+                  live=live, dormant=dormant, restarts=restarts, env=env,
+                  auto_start=int(row.get("auto_start") or 0))
 
 @app.post("/bots")
 async def bot_create(request: Request, user=Depends(require_user),
@@ -373,6 +382,17 @@ async def bot_create(request: Request, user=Depends(require_user),
 
     applog(f"bot-{bid}", "info",
            f"created · name={name} · token={'auto' if token else 'missing'} · env={len(detected_env)}")
+    return RedirectResponse(f"/bots/{bid}", 303)
+
+
+@app.post("/bots/{bid}/autostart")
+async def bot_autostart_toggle(bid: str, request: Request, user=Depends(require_user)):
+    row = db.fetchone("SELECT auto_start FROM bots WHERE id=? AND user_id=?", (bid, user))
+    if not row: raise HTTPException(404)
+    cur = int(row.get("auto_start") or 0)
+    new = 0 if cur else 1
+    db.execute("UPDATE bots SET auto_start=? WHERE id=?", (new, bid))
+    applog(bid, "info", f"auto_start = {'ON' if new else 'OFF'}")
     return RedirectResponse(f"/bots/{bid}", 303)
 
 @app.post("/bots/{bid}/env")
@@ -554,7 +574,8 @@ async def app_detail(aid: str, request: Request, user=Depends(require_user)):
     port = getattr(rt, "port", None) if rt else None
     is_dynamic = (row.get("type") or "").lower() not in ("static", "php")
     return render("apps.html", request, page="apps", apps=None, app=row, env=env, files=files,
-                  live=live, dormant=dormant, restarts=restarts, port=port, is_dynamic=is_dynamic)
+                  live=live, dormant=dormant, restarts=restarts, port=port, is_dynamic=is_dynamic,
+                  auto_start=int(row.get("auto_start") or 0))
 
 @app.post("/apps")
 async def app_create(request: Request, user=Depends(require_user),
@@ -645,6 +666,17 @@ async def app_create(request: Request, user=Depends(require_user),
 
     applog(aid, "info",
            f"registered · {file_count} files · kind={entry_info['kind']} · entry={entry_info['entry'] or '—'} · env={len(detected_env)}")
+    return RedirectResponse(f"/apps/{aid}", 303)
+
+
+@app.post("/apps/{aid}/autostart")
+async def app_autostart_toggle(aid: str, request: Request, user=Depends(require_user)):
+    row = db.fetchone("SELECT auto_start FROM apps WHERE id=? AND user_id=?", (aid, user))
+    if not row: raise HTTPException(404)
+    cur = int(row.get("auto_start") or 0)
+    new = 0 if cur else 1
+    db.execute("UPDATE apps SET auto_start=? WHERE id=?", (new, aid))
+    applog(aid, "info", f"auto_start = {'ON' if new else 'OFF'}")
     return RedirectResponse(f"/apps/{aid}", 303)
 
 @app.post("/apps/{aid}/env")

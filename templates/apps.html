@@ -54,6 +54,17 @@
             <td class="env-val">process exit / crash · watchdog tick 5s</td></tr>
         <tr><td style="color:var(--muted)">Limit</td>
             <td class="env-val">5 restarts / 5 min → dormant</td></tr>
+        <tr><td style="color:var(--muted)">Auto-start on boot</td>
+            <td>
+              <form method="post" action="/apps/{{ app.id }}/autostart" style="display:inline">
+                <button class="btn {{ 'gold' if auto_start else 'ghost' }} small">
+                  {{ '✓ ON' if auto_start else '✗ OFF' }}
+                </button>
+              </form>
+              <span style="color:var(--muted);font-size:11px;margin-left:8px">
+                deploy/redeploy hole auto start hobe
+              </span>
+            </td></tr>
       </table>
     </div>
   {% else %}
@@ -183,11 +194,16 @@
             <span class="badge {{ 'run' if a.live else 'stop' }}">
               <span class="dot"></span>{{ 'running' if a.live else a.status }}
             </span>
+            {% if a.auto_start %}<span class="badge warn" title="deploy e auto start">⟳ auto</span>{% endif %}
             {% if a.status == 'hosted' or a.live %}
-              <a class="btn gold small" href="/site/{{ a.id }}/" target="_blank">↗</a>
+              <a class="btn gold small" href="/site/{{ a.id }}/" target="_blank" title="Open site">↗</a>
             {% endif %}
             <a class="btn ghost small" href="/download/app/{{ a.id }}" title="Download .zip">↓</a>
-            <a class="btn ghost small" href="/apps/{{ a.id }}" title="Open">↗</a>
+            <a class="btn ghost small" href="/apps/{{ a.id }}" title="Open detail">⋯</a>
+            <form method="post" action="/apps/{{ a.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete {{ a.name }}?')">
+              <button class="btn ghost small danger" title="Delete">🗑</button>
+            </form>
           </div>
         </div>
         <div class="logbox-wrap">

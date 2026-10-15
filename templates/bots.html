@@ -49,6 +49,17 @@
           <td class="env-val">5 handler crashes / 60s · dead polling task (watchdog)</td></tr>
       <tr><td style="color:var(--muted)">Limit</td>
           <td class="env-val">5 restarts / 5 min → dormant</td></tr>
+      <tr><td style="color:var(--muted)">Auto-start on boot</td>
+          <td>
+            <form method="post" action="/bots/{{ bot.id }}/autostart" style="display:inline">
+              <button class="btn {{ 'gold' if auto_start else 'ghost' }} small">
+                {{ '✓ ON' if auto_start else '✗ OFF' }}
+              </button>
+            </form>
+            <span style="color:var(--muted);font-size:11px;margin-left:8px">
+              deploy/redeploy hole auto start hobe
+            </span>
+          </td></tr>
     </table>
   </div>
 
@@ -90,11 +101,6 @@
       <button type="button" class="btn ghost small" onclick="copyLogs('logbox')" title="Copy logs">⧉</button>
       <button type="button" class="btn ghost small" onclick="clearLogs('logbox')" title="Clear">✕</button>
     </div>
-  </div>
-
-  <h2>Source — {{ bot.filename }}</h2>
-  <div class="card" style="padding:0">
-    <pre style="margin:0;padding:18px;font-family:'JetBrains Mono',monospace;font-size:12px;line-height:1.6;overflow:auto;max-height:420px;color:var(--text-dim)">{{ bot.code }}</pre>
   </div>
 
   <div style="margin-top:20px"><a class="btn ghost" href="/bots">← All bots</a></div>
@@ -153,14 +159,19 @@
             <span class="badge {{ 'run' if b.live else 'stop' }}">
               <span class="dot"></span>{{ 'running' if b.live else 'stopped' }}
             </span>
+            {% if b.auto_start %}<span class="badge warn" title="deploy e auto start">⟳ auto</span>{% endif %}
             <form method="post" action="/bots/{{ b.id }}/start" style="display:inline">
-              <button class="btn gold small">▶</button>
+              <button class="btn gold small" title="Start">▶</button>
             </form>
             <form method="post" action="/bots/{{ b.id }}/stop" style="display:inline">
-              <button class="btn small">■</button>
+              <button class="btn small" title="Stop">■</button>
             </form>
             <a class="btn ghost small" href="/download/bot/{{ b.id }}" title="Download code">↓</a>
             <a class="btn ghost small" href="/bots/{{ b.id }}" title="Open">↗</a>
+            <form method="post" action="/bots/{{ b.id }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete {{ b.name }}?')">
+              <button class="btn ghost small danger" title="Delete">🗑</button>
+            </form>
           </div>
         </div>
         <div class="logbox-wrap">
